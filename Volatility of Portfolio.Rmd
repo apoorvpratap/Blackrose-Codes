@@ -1,0 +1,107 @@
+```{r}
+library(timetk)
+library(tidyverse)
+library(tidyquant)
+library(highcharter)
+library(Quandl)
+
+
+# Get data
+a1=Quandl("NSE/ADANIPOWER", start_date="2013-01-29", type="xts")
+a2=Quandl("NSE/GODFRYPHLP", start_date="2013-01-29", type="xts")
+a3=Quandl("NSE/HINDPETRO", start_date="2013-01-29", type="xts")
+a4=Quandl("NSE/MAGMA", start_date="2013-01-29", type="xts")
+
+na.omit(a1) 
+na.omit(a2) 
+na.omit(a3) 
+na.omit(a4) 
+a=a1[,5]
+b=a2[,5]
+c=a3[,5]
+d=a4[,5]
+
+stocks.data=merge(a,b)
+stocks.data=merge(stocks.data,c)
+stocks.data=merge(stocks.data,d)
+A = names(stocks.data)=c("Adani","GDPhilip","Hpetrol","Mag")
+
+
+prices_monthly <- to.monthly(stocks.data, indexAt = "first", OHLC = FALSE)
+
+portfolioComponentReturns <- na.omit(Return.calculate(prices_monthly, method = "log"))
+
+w = c(0.25, 0.25, 0.25, 0.25)
+
+covariance_matrix <- cov(portfolioComponentReturns)
+
+# Square root of transpose of the weights cross prod covariance matrix returns 
+# cross prod weights gives portfolio standard deviation.
+sd_portfolio <- sqrt(t(w) %*% covariance_matrix %*% w)
+
+# Marginal contribution of each asset. 
+marginal_contribution <- w %*% covariance_matrix / sd_portfolio[1,1]
+
+# Component contributions to risk are the weighted marginal contributions
+component_contribution <- marginal_contribution * w 
+
+# This should equal total portfolio vol, or the object `sd_portfolio`
+components_summed <- rowSums(component_contribution)
+
+# To get the percentage contribution, divide component contribution by total sd.
+component_percentages <- component_contribution / sd_portfolio[1,1]
+
+percentage_tibble_by_hand <- 
+  tibble(A, w, as.vector(component_percentages)) %>% 
+  rename(asset = A, 'portfolio weight' = w, 'risk contribution' = `as.vector(component_percentages)`)
+
+percentage_tibble_by_hand
+
+# Confirm component contribution to volality.
+component_sd_pre_built <- StdDev(portfolioComponentReturns, weights = w, 
+                              portfolio_method = "component")
+component_sd_pre_built
+
+percentages_tibble_pre_built <- 
+  component_sd_pre_built$pct_contrib_StdDev %>%
+  tk_tbl(preserve_row_names = FALSE) %>%
+  mutate(asset = A) %>%
+  rename('risk contribution' = data) %>% 
+  select(asset, everything(), -index)
+
+percentages_tibble_pre_built
+percentage_tibble_by_hand
+
+
+component_percent_plot <- 
+  ggplot(percentage_tibble_by_hand, aes(asset, `risk contribution`)) +
+  geom_col(fill = 'blue', colour = 'red') + 
+  scale_y_continuous(labels = scales::percent) + 
+  ggtitle("Percent Contribution to Volatility", 
+          subtitle = "") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme(plot.subtitle = element_text(hjust = 0.5)) +
+  xlab("Asset") +
+  ylab("Percent Contribution to Risk")
+
+component_percent_plot
+
+# gather
+percentage_tibble_by_hand_gather <-
+  percentage_tibble_by_hand %>% 
+  gather(type, percent, -asset)
+
+# built ggplot object
+plot_compare_weight_contribution <- 
+  ggplot(percentage_tibble_by_hand_gather, aes(x = asset, y = percent, fill = type)) +
+  geom_col(position = 'dodge') + 
+  scale_y_continuous(labels = scales::percent) + 
+  ggtitle("Percent Contribution to Volatility", 
+          subtitle = "") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme(plot.subtitle = element_text(hjust = 0.5))
+
+plot_compare_weight_contribution
+
+```
+
